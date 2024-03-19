@@ -1,0 +1,5 @@
+-- +goose Up
+
+ALTER TABLE todos 
+ADD created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+

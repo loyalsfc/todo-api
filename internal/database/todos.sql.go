@@ -17,7 +17,7 @@ INSERT INTO todos (
 ) VALUES (
     $1, $2, $3, $4
 )
-RETURNING id, title, description, is_completed
+RETURNING id, title, description, is_completed, created_at
 `
 
 type AddTodoParams struct {
@@ -40,6 +40,7 @@ func (q *Queries) AddTodo(ctx context.Context, arg AddTodoParams) (Todo, error) 
 		&i.Title,
 		&i.Description,
 		&i.IsCompleted,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -55,7 +56,7 @@ func (q *Queries) DeleteTodo(ctx context.Context, id uuid.UUID) error {
 }
 
 const getTodo = `-- name: GetTodo :one
-SELECT id, title, description, is_completed FROM todos
+SELECT id, title, description, is_completed, created_at FROM todos
 WHERE id = $1
 `
 
@@ -67,12 +68,13 @@ func (q *Queries) GetTodo(ctx context.Context, id uuid.UUID) (Todo, error) {
 		&i.Title,
 		&i.Description,
 		&i.IsCompleted,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getTodos = `-- name: GetTodos :many
-SELECT id, title, description, is_completed FROM todos
+SELECT id, title, description, is_completed, created_at FROM todos
 `
 
 func (q *Queries) GetTodos(ctx context.Context) ([]Todo, error) {
@@ -89,6 +91,7 @@ func (q *Queries) GetTodos(ctx context.Context) ([]Todo, error) {
 			&i.Title,
 			&i.Description,
 			&i.IsCompleted,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -106,18 +109,24 @@ func (q *Queries) GetTodos(ctx context.Context) ([]Todo, error) {
 const updateTodo = `-- name: UpdateTodo :exec
 UPDATE todos 
     set title = $2,
-    description = $2,
-    is_completed = $3
+    description = $3,
+    is_completed = $4
 WHERE id = $1
 `
 
 type UpdateTodoParams struct {
 	ID          uuid.UUID
 	Title       string
+	Description string
 	IsCompleted bool
 }
 
 func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) error {
-	_, err := q.db.ExecContext(ctx, updateTodo, arg.ID, arg.Title, arg.IsCompleted)
+	_, err := q.db.ExecContext(ctx, updateTodo,
+		arg.ID,
+		arg.Title,
+		arg.Description,
+		arg.IsCompleted,
+	)
 	return err
 }

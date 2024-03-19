@@ -5,6 +5,8 @@
 package database
 
 import (
+	"database/sql"
+
 	"github.com/google/uuid"
 )
 
@@ -13,4 +15,5 @@ type Todo struct {
 	Title       string
 	Description string
 	IsCompleted bool
+	CreatedAt   sql.NullTime
 }

@@ -16,8 +16,8 @@ WHERE id = $1;
 -- name: UpdateTodo :exec
 UPDATE todos 
     set title = $2,
-    description = $2,
-    is_completed = $3
+    description = $3,
+    is_completed = $4
 WHERE id = $1;
 
 -- name: DeleteTodo :exec

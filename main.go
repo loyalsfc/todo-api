@@ -1,13 +1,20 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	"github.com/loyalsfc/social-network/internal/database"
+
+	_ "github.com/lib/pq"
 )
 
 type Todos struct {
@@ -16,18 +23,28 @@ type Todos struct {
 	IsDone bool   `json:"is_done"`
 }
 
+type apiCfg struct {
+	DB *database.Queries
+}
+
 func main() {
-	todos := []Todos{
-		{
-			Id:     uuid.New().String(),
-			Task:   "See a woman",
-			IsDone: false,
-		},
-		{
-			Id:     uuid.New().String(),
-			Task:   "Read a book",
-			IsDone: false,
-		},
+	godotenv.Load()
+	postgressKey := os.Getenv("GOOSE_TOKEN")
+
+	if postgressKey == "" {
+		log.Fatal("Connection string is empty")
+	}
+
+	conn, err := sql.Open("postgres", postgressKey)
+
+	if err != nil {
+		log.Fatal("Can't connect to database", err)
+	}
+
+	db := database.New(conn)
+
+	apiCfg := apiCfg{
+		DB: db,
 	}
 
 	router := chi.NewRouter()
@@ -51,33 +68,41 @@ func main() {
 	})
 
 	v1Router.Get("/todos", func(w http.ResponseWriter, r *http.Request) {
-		jsonResponse(w, 200, todos)
+		todoList, err := apiCfg.DB.GetTodos(r.Context())
+
+		if err != nil {
+			errorResponse(w, 400, "An error occured")
+			return
+		}
+
+		jsonResponse(w, 200, todoList)
 	})
 
 	v1Router.Get("/todos/{todoId}", func(w http.ResponseWriter, r *http.Request) {
 		todoId := chi.URLParam(r, "todoId")
 
-		requestedTodo := []Todos{}
+		id, err := uuid.Parse(todoId)
 
-		for _, todo := range todos {
-			if todo.Id == todoId {
-				requestedTodo = append(requestedTodo, todo)
-				break
-			}
+		if err != nil {
+			errorResponse(w, 400, fmt.Sprintf("Error in parsing id %v", err))
 		}
 
-		if len(requestedTodo) > 0 {
-			jsonResponse(w, 200, requestedTodo[0])
-		} else {
-			errorResponse(w, 404, "Todo not found")
+		requestedTodo, err := apiCfg.DB.GetTodo(r.Context(), id)
+
+		if err != nil {
+			errorResponse(w, 404, fmt.Sprintf("An Error occured: %v", err))
+			return
 		}
+
+		jsonResponse(w, 200, requestedTodo)
 
 	})
 
 	v1Router.Post("/todo", func(w http.ResponseWriter, r *http.Request) {
 		type parameters struct {
-			Task   string `json:"task"`
-			IsDone bool   `json:"is_done"`
+			Task        string `json:"task"`
+			Description string `json:"description"`
+			IsDone      bool   `json:"is_done"`
 		}
 
 		decorder := json.NewDecoder(r.Body)
@@ -91,29 +116,34 @@ func main() {
 			return
 		}
 
-		todos = append(todos, Todos{
-			Id:     uuid.New().String(),
-			Task:   params.Task,
-			IsDone: params.IsDone,
+		todo, err := apiCfg.DB.AddTodo(r.Context(), database.AddTodoParams{
+			ID:          uuid.New(),
+			Title:       params.Task,
+			Description: params.Description,
+			IsCompleted: params.IsDone,
 		})
 
-		jsonResponse(w, 200, todos)
+		if err != nil {
+			errorResponse(w, 400, fmt.Sprintf("Error parsing json %v", err))
+			return
+		}
+
+		jsonResponse(w, 200, todo)
 
 	})
 
 	v1Router.Delete("/todo/{todoId}", func(w http.ResponseWriter, r *http.Request) {
 		todoId := chi.URLParam(r, "todoId")
 
-		temporalTodo := []Todos{}
+		id, err := uuid.Parse(todoId)
 
-		for _, todo := range todos {
-			if todoId != todo.Id {
-				temporalTodo = append(temporalTodo, todo)
-			}
+		if err != nil {
+			errorResponse(w, 400, fmt.Sprintf("Invalid id: %v", err))
+			return
 		}
 
-		todos = temporalTodo
-		fmt.Println(temporalTodo)
+		apiCfg.DB.DeleteTodo(r.Context(), id)
+
 		jsonResponse(w, 200, "Todo Deleted successfully")
 
 	})
@@ -121,30 +151,35 @@ func main() {
 	v1Router.Put("/todo/{todoId}", func(w http.ResponseWriter, r *http.Request) {
 		todoId := chi.URLParam(r, "todoId")
 
-		type Param struct {
-			Task   string `json:"task"`
-			IsDone bool   `json:"is_done"`
+		type parameters struct {
+			Task        string `json:"task"`
+			Description string `json:"description"`
+			IsDone      bool   `json:"is_done"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
 
-		params := Param{}
+		params := parameters{}
 
 		err := decoder.Decode(&params)
 
 		if err != nil {
-			errorResponse(w, 400, "Invalid form data")
+			errorResponse(w, 400, fmt.Sprintf("Invalid form data: %v", err))
 		}
 
-		for index, todo := range todos {
-			if todoId == todo.Id {
-				todos[index] = Todos{
-					Id:     todoId,
-					Task:   params.Task,
-					IsDone: params.IsDone,
-				}
-			}
+		id, err := uuid.Parse(todoId)
+
+		if err != nil {
+			errorResponse(w, 400, fmt.Sprintf("Invalid todo id: %v", err))
+			return
 		}
+
+		apiCfg.DB.UpdateTodo(r.Context(), database.UpdateTodoParams{
+			ID:          id,
+			Title:       params.Task,
+			Description: params.Description,
+			IsCompleted: params.IsDone,
+		})
 
 		jsonResponse(w, 200, "Todo updated successfully")
 	})
